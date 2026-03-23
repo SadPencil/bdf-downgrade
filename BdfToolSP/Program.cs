@@ -24,70 +24,76 @@
 //   5. Glyphs that relied on global SWIDTH/DWIDTH defaults get explicit SWIDTH/DWIDTH
 //      lines inserted before their BBX line
 
-// ── Argument parsing helpers ──────────────────────────────────────────────────
+using System.CommandLine;
 
-// Extracts --font-name <value> from args, returning the remaining positional args.
-// Returns false if --font-name appears but has no following value.
-bool TryExtractFontName(string[] args, out string? fontName, out string[] remaining)
+// ── downgrade subcommand ──────────────────────────────────────────────────────
+
+var downgradeInputArg = new Argument<string>("input.bdf")
 {
-    fontName = null;
-    var positional = new List<string>();
-    for (int i = 0; i < args.Length; i++)
-    {
-        if (args[i] == "--font-name")
-        {
-            if (i + 1 >= args.Length)
-            {
-                Console.Error.WriteLine("Error: --font-name requires a value.");
-                remaining = [];
-                return false;
-            }
-            fontName = args[++i];
-        }
-        else
-        {
-            positional.Add(args[i]);
-        }
-    }
-    remaining = [.. positional];
-    return true;
-}
-
-// ── Subcommand dispatch ───────────────────────────────────────────────────────
-
-if (args.Length >= 1 && args[0] == "merge")
+    Description = "Input BDF file (version 2.2 or 2.1)"
+};
+var downgradeOutputArg = new Argument<string>("output.bdf")
 {
-    if (!TryExtractFontName(args[1..], out string? fontName, out string[] pos))
-        return 1;
-    if (fontName == null)
-    {
-        Console.Error.WriteLine("Error: 'merge' requires --font-name <name>.");
-        Console.Error.WriteLine("Usage: BdfToolSP merge --font-name <name> <input1.bdf> <input2.bdf> <output.bdf>");
-        return 1;
-    }
-    if (pos.Length != 3)
-    {
-        Console.Error.WriteLine("Usage: BdfToolSP merge --font-name <name> <input1.bdf> <input2.bdf> <output.bdf>");
-        return 1;
-    }
-    return MergeBdfFiles(pos[0], pos[1], pos[2], fontName);
-}
-
-if (args.Length >= 1 && args[0] == "downgrade")
+    Description = "Output BDF 2.1 file"
+};
+var downgradeFontNameOption = new Option<string?>("--font-name")
 {
-    if (!TryExtractFontName(args[1..], out string? fontName, out string[] pos))
-        return 1;
-    if (pos.Length != 2)
-    {
-        Console.Error.WriteLine("Usage: BdfToolSP downgrade [--font-name <name>] <input.bdf> <output.bdf>");
-        return 1;
-    }
-    return DowngradeBdfFile(pos[0], pos[1], fontName);
-}
+    Description = "Rewrite FAMILY_NAME, FONT_NAME, and FACE_NAME to <name>"
+};
 
-Console.Error.WriteLine("Usage: BdfToolSP downgrade [--font-name <name>] <input.bdf> <output.bdf>");
-Console.Error.WriteLine("       BdfToolSP merge --font-name <name> <input1.bdf> <input2.bdf> <output.bdf>");
-return 1;
+var downgradeCommand = new Command("downgrade", "Convert BDF 2.2 to BDF 2.1");
+downgradeCommand.Arguments.Add(downgradeInputArg);
+downgradeCommand.Arguments.Add(downgradeOutputArg);
+downgradeCommand.Options.Add(downgradeFontNameOption);
+downgradeCommand.SetAction(parseResult =>
+{
+    string input = parseResult.GetValue(downgradeInputArg)!;
+    string output = parseResult.GetValue(downgradeOutputArg)!;
+    string? fontName = parseResult.GetValue(downgradeFontNameOption);
+    return DowngradeBdfFile(input, output, fontName);
+});
+
+// ── merge subcommand ──────────────────────────────────────────────────────────
+
+var mergeInput1Arg = new Argument<string>("input1.bdf")
+{
+    Description = "First BDF 2.1 font file (takes precedence on conflicts)"
+};
+var mergeInput2Arg = new Argument<string>("input2.bdf")
+{
+    Description = "Second BDF 2.1 font file"
+};
+var mergeOutputArg = new Argument<string>("output.bdf")
+{
+    Description = "Output merged BDF 2.1 file"
+};
+var mergeFontNameOption = new Option<string>("--font-name")
+{
+    Description = "Name to set for FAMILY_NAME, FONT_NAME, and FACE_NAME",
+    Required = true
+};
+
+var mergeCommand = new Command("merge", "Combine two BDF 2.1 files");
+mergeCommand.Arguments.Add(mergeInput1Arg);
+mergeCommand.Arguments.Add(mergeInput2Arg);
+mergeCommand.Arguments.Add(mergeOutputArg);
+mergeCommand.Options.Add(mergeFontNameOption);
+mergeCommand.SetAction(parseResult =>
+{
+    string input1 = parseResult.GetValue(mergeInput1Arg)!;
+    string input2 = parseResult.GetValue(mergeInput2Arg)!;
+    string output = parseResult.GetValue(mergeOutputArg)!;
+    string fontName = parseResult.GetValue(mergeFontNameOption)!;
+    return MergeBdfFiles(input1, input2, output, fontName);
+});
+
+// ── Root command ──────────────────────────────────────────────────────────────
+
+var rootCommand = new RootCommand("BDF font file processing tool");
+rootCommand.Subcommands.Add(downgradeCommand);
+rootCommand.Subcommands.Add(mergeCommand);
+
+return rootCommand.Parse(args).Invoke();
 
 // ── Downgrade command implementation ─────────────────────────────────────────
 
